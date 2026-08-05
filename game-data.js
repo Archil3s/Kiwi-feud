@@ -1,1 +1,1 @@
-document.write('<script src="questions-1.js"><\/script><script src="questions-2.js"><\/script><script src="questions-3.js"><\/script><script src="questions-4.js"><\/script><script src="game-core.js"><\/script><script defer src="host-ui.js"><\/script>');
+document.write('<script src="questions-1.js"><\/script><script src="questions-2.js"><\/script><script src="questions-3.js"><\/script><script src="questions-4.js"><\/script><script src="game-core.js"><\/script><script defer src="host-ui.js"><\/script><script defer src="question-host.js"><\/script>');
