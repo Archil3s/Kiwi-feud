@@ -114,9 +114,67 @@
         <button class="btn red" id="stealMissBtn" onclick="stealMiss()">✖ Steal Missed</button>
       </div>
       <div class="status">At three strikes, control automatically moves to the next team for one steal attempt. Correct steal: reveal the answer and press Award. Missed steal: press Steal Missed.</div>`;
+
+    const rules=document.createElement('section');
+    rules.className='panel';
+    rules.style.marginTop='12px';
+    rules.innerHTML=`
+      <details id="hostRules">
+        <summary style="cursor:pointer;font-weight:1000;color:#ffd24b;font-size:17px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <span>📘 Rules & How to Play</span><span style="font-size:13px;color:#b6ccda">Tap to open</span>
+        </summary>
+        <div style="margin-top:12px;display:grid;gap:12px;color:#e8f1f7;line-height:1.45">
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">1. Set up the game</strong>
+            <p style="margin:6px 0 0">Add or rename teams, open the Audience screen, choose a category and select Single, Double or Triple points.</p>
+          </div>
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">2. Start a round</strong>
+            <p style="margin:6px 0 0">Press <b>New Question</b>. Choose the team that won the face-off by tapping its numbered circle. That team is now in control.</p>
+          </div>
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">3. Reveal correct answers</strong>
+            <p style="margin:6px 0 0">Tap an answer row when the team gives a matching answer. Its points are added to the round pot automatically.</p>
+          </div>
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">4. Add strikes</strong>
+            <p style="margin:6px 0 0">Press <b>Add Strike</b> for a wrong answer. On the third strike, the next team automatically receives one steal attempt.</p>
+          </div>
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">5. Resolve the steal</strong>
+            <p style="margin:6px 0 0"><b>Successful steal:</b> reveal the matching answer, then press <b>Award</b>. <b>Missed steal:</b> press <b>Steal Missed</b>; the original controlling team receives the full pot.</p>
+          </div>
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">6. Multipliers and scoring</strong>
+            <p style="margin:6px 0 0">The revealed-answer total is multiplied by ×1, ×2 or ×3. Example: a 46-point board on Double becomes a 92-point round pot.</p>
+          </div>
+          <div style="background:#061b2d;border-radius:12px;padding:12px">
+            <strong style="color:#ffd24b">Host control guide</strong>
+            <div style="margin-top:7px;display:grid;gap:5px;font-size:14px">
+              <div><b>Pass Control:</b> manually moves control to the next team and clears strikes.</div>
+              <div><b>Next Team:</b> changes the highlighted team without resetting the round.</div>
+              <div><b>Cover Answers:</b> hides all revealed answers for the current card.</div>
+              <div><b>+5 / −5:</b> manually corrects a team score.</div>
+              <div><b>New Question:</b> starts a fresh round and clears strikes.</div>
+              <div><b>Reset Game:</b> clears all scores and game progress.</div>
+            </div>
+          </div>
+          <div style="background:#163a5b;border:1px solid #ffd24b55;border-radius:12px;padding:12px;font-size:13px">
+            <strong style="color:#ffd24b">Recommended 2-hour format</strong>
+            <p style="margin:6px 0 0">Play 6 Single rounds, 4 Double rounds and 2 Triple rounds, then finish with Fast Money or a tie-breaker.</p>
+          </div>
+        </div>
+      </details>`;
+
     const main=document.querySelector('main');
     const soundPanel=[...main.querySelectorAll('section')].find(x=>x.textContent.includes('ORIGINAL GAME-SHOW SOUNDBOARD'));
-    if(soundPanel)main.insertBefore(panel,soundPanel);else main.appendChild(panel);
+    if(soundPanel){
+      main.insertBefore(panel,soundPanel);
+      main.insertBefore(rules,soundPanel);
+    }else{
+      main.appendChild(panel);
+      main.appendChild(rules);
+    }
 
     KiwiSync.subscribe(s=>{
       normalize(s);
