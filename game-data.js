@@ -1,13 +1,13 @@
 window.KIWI_FEUD_BANK=[
 {c:'Everyday Kiwi',q:'Name something you might find in a Kiwi backyard.',a:[['BBQ',30],['Trampoline',24],['Clothesline',18],['Vege garden',16],['Dog',12]]},
 {c:'Everyday Kiwi',q:'Name something people buy from the dairy.',a:[['Milk',28],['Lollies',24],['Ice cream',19],['Bread',16],['Pie',13]]},
-{c:'Kai & BBQ',q:'Name something you would cook on a Kiwi BBQ.',a:[['Sausages',31],['Steak',24],['Burger patties',18],['Chicken',15],['Corn',12]]},
+{c:'Kai & BBQ',q:'Name something you would put on a Kiwi BBQ.',a:[['Sausages',31],['Steak or chops',24],['Corn',18],['Kebabs',15],['Garlic bread',12]]},
 {c:'Summer',q:'Name something you take to the beach.',a:[['Towel',29],['Sunscreen',26],['Togs',19],['Food',15],['Umbrella',11]]},
 {c:'Sport',q:'Name something you hear at a rugby match.',a:[['Go!',28],['Ref!',24],['Cheering',20],['Whistle',16],['National anthem',12]]},
 {c:'Aotearoa',q:'Name a te reo Māori word many New Zealanders use.',a:[['Kia ora',35],['Whānau',23],['Kai',18],['Mahi',14],['Aroha',10]]},
 {c:'Workplace',q:'Name something always found in the staff room.',a:[['Kettle',29],['Mugs',24],['Microwave',19],['Milk',16],['Leftover food',12]]},
 {c:'Outdoors',q:'Name something you pack for a tramp.',a:[['Water',28],['Raincoat',24],['Food',20],['First-aid kit',16],['Map',12]]},
-{c:'Marlborough',q:'Name something Marlborough is famous for.',a:[['Wine',39],['Sauvignon Blanc',22],['Marlborough Sounds',17],['Sunshine',13],['Seafood',9]]},
+{c:'Marlborough',q:'Name something Marlborough is famous for.',a:[['Sauvignon Blanc',34],['Marlborough Sounds',25],['Seafood',18],['Sunny weather',14],['Cycling trails',9]]},
 {c:'Kids & School',q:'Name something children lose at school.',a:[['Jersey',30],['Lunchbox',24],['Hat',19],['Drink bottle',15],['Shoes',12]]}
 ];
 window.KiwiSync=(()=>{const KEY='kiwi-feud-state-v3';const channel=('BroadcastChannel'in window)?new BroadcastChannel('kiwi-feud-live-v3'):null;const base={questionIndex:-1,revealed:[],scores:[0,0],teamNames:['Kea','Tūī'],activeTeam:0,strikes:0,multiplier:1,timer:30,roundAwarded:false,updated:Date.now()};let state={...base,...JSON.parse(localStorage.getItem(KEY)||'{}')};const listeners=new Set();function emit(){listeners.forEach(fn=>fn(structuredClone(state)))}function save(broadcast=true){state.updated=Date.now();localStorage.setItem(KEY,JSON.stringify(state));if(broadcast&&channel)channel.postMessage(state);emit()}if(channel)channel.onmessage=e=>{if(e.data&&e.data.updated>=state.updated){state=e.data;localStorage.setItem(KEY,JSON.stringify(state));emit()}};addEventListener('storage',e=>{if(e.key===KEY&&e.newValue){state=JSON.parse(e.newValue);emit()}});return{get:()=>structuredClone(state),set:patch=>{state={...state,...patch};save()},reset:()=>{state={...base,updated:Date.now()};save()},subscribe:fn=>{listeners.add(fn);fn(structuredClone(state));return()=>listeners.delete(fn)}}})();
