@@ -22,44 +22,29 @@
   if(isHost){
     const originalNext=window.nextQuestion;
     const originalReset=window.resetGame;
+    let rulesComplete=false;
 
     window.nextQuestion=function(){
+      if(!rulesComplete){
+        openRulesPopup();
+        return;
+      }
       if(typeof originalNext==='function')originalNext();
       setTimeout(()=>{
         const s=KiwiSync.get();
-        KiwiSync.set({
-          phase:'play',
-          controllingTeam:s.activeTeam,
-          defendingTeam:null,
-          stealTeam:null,
-          strikes:0,
-          roundAwarded:false,
-          multiplier:Number(document.getElementById('multiplier')?.value||s.multiplier||1)
-        });
+        KiwiSync.set({phase:'play',controllingTeam:s.activeTeam,defendingTeam:null,stealTeam:null,strikes:0,roundAwarded:false,multiplier:Number(document.getElementById('multiplier')?.value||s.multiplier||1)});
       },0);
     };
 
     window.strike=function(){
       const s=KiwiSync.get();
       if(s.roundAwarded)return;
-      if(s.phase==='steal'){
-        if(window.KiwiAudio?.buzzer)window.KiwiAudio.buzzer();
-        return;
-      }
+      if(s.phase==='steal'){window.KiwiAudio?.buzzer?.();return;}
       const strikes=Math.min(3,(s.strikes||0)+1);
-      if(strikes<3){
-        KiwiSync.set({strikes});
-        return;
-      }
+      if(strikes<3){KiwiSync.set({strikes});return;}
       const defending=Number.isInteger(s.controllingTeam)?s.controllingTeam:s.activeTeam;
       const steal=nextTeamIndex(s,defending);
-      KiwiSync.set({
-        strikes:3,
-        phase:'steal',
-        defendingTeam:defending,
-        stealTeam:steal,
-        activeTeam:steal
-      });
+      KiwiSync.set({strikes:3,phase:'steal',defendingTeam:defending,stealTeam:steal,activeTeam:steal});
     };
 
     window.award=function(){
@@ -70,7 +55,7 @@
       const target=s.phase==='steal'&&Number.isInteger(s.stealTeam)?s.stealTeam:s.activeTeam;
       const teams=s.teams.map((t,i)=>i===target?{...t,score:t.score+pot}:t);
       KiwiSync.set({teams,roundAwarded:true,phase:'complete',activeTeam:target});
-      if(window.KiwiAudio?.win)window.KiwiAudio.win();
+      window.KiwiAudio?.win?.();
     };
 
     window.stealMiss=function(){
@@ -80,7 +65,7 @@
       const target=Number.isInteger(s.defendingTeam)?s.defendingTeam:s.controllingTeam;
       const teams=s.teams.map((t,i)=>i===target?{...t,score:t.score+pot}:t);
       KiwiSync.set({teams,roundAwarded:true,phase:'complete',activeTeam:target});
-      if(window.KiwiAudio?.buzzer)window.KiwiAudio.buzzer();
+      window.KiwiAudio?.buzzer?.();
     };
 
     window.passControl=function(){
@@ -92,17 +77,14 @@
     if(typeof originalReset==='function'){
       window.resetGame=function(){
         originalReset();
-        setTimeout(()=>KiwiSync.set({...roundDefaults}),0);
+        rulesComplete=false;
+        sessionStorage.removeItem('kiwi-feud-rules-complete');
+        setTimeout(()=>{KiwiSync.set({...roundDefaults});openRulesPopup();},0);
       };
     }
 
     const multiplier=document.getElementById('multiplier');
-    if(multiplier){
-      multiplier.onchange=e=>{
-        const value=Math.max(1,Math.min(3,Number(e.target.value)||1));
-        KiwiSync.set({multiplier:value});
-      };
-    }
+    if(multiplier)multiplier.onchange=e=>KiwiSync.set({multiplier:Math.max(1,Math.min(3,Number(e.target.value)||1))});
 
     const panel=document.createElement('section');
     panel.className='panel';
@@ -113,68 +95,60 @@
         <button class="btn" onclick="passControl()">↔ Pass Control</button>
         <button class="btn red" id="stealMissBtn" onclick="stealMiss()">✖ Steal Missed</button>
       </div>
-      <div class="status">At three strikes, control automatically moves to the next team for one steal attempt. Correct steal: reveal the answer and press Award. Missed steal: press Steal Missed.</div>`;
-
-    const rules=document.createElement('section');
-    rules.className='panel';
-    rules.style.marginTop='12px';
-    rules.innerHTML=`
-      <details id="hostRules">
-        <summary style="cursor:pointer;font-weight:1000;color:#ffd24b;font-size:17px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px">
-          <span>📘 Rules & How to Play</span><span style="font-size:13px;color:#b6ccda">Tap to open</span>
-        </summary>
-        <div style="margin-top:12px;display:grid;gap:12px;color:#e8f1f7;line-height:1.45">
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">1. Set up the game</strong>
-            <p style="margin:6px 0 0">Add or rename teams, open the Audience screen, choose a category and select Single, Double or Triple points.</p>
-          </div>
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">2. Start a round</strong>
-            <p style="margin:6px 0 0">Press <b>New Question</b>. Choose the team that won the face-off by tapping its numbered circle. That team is now in control.</p>
-          </div>
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">3. Reveal correct answers</strong>
-            <p style="margin:6px 0 0">Tap an answer row when the team gives a matching answer. Its points are added to the round pot automatically.</p>
-          </div>
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">4. Add strikes</strong>
-            <p style="margin:6px 0 0">Press <b>Add Strike</b> for a wrong answer. On the third strike, the next team automatically receives one steal attempt.</p>
-          </div>
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">5. Resolve the steal</strong>
-            <p style="margin:6px 0 0"><b>Successful steal:</b> reveal the matching answer, then press <b>Award</b>. <b>Missed steal:</b> press <b>Steal Missed</b>; the original controlling team receives the full pot.</p>
-          </div>
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">6. Multipliers and scoring</strong>
-            <p style="margin:6px 0 0">The revealed-answer total is multiplied by ×1, ×2 or ×3. Example: a 46-point board on Double becomes a 92-point round pot.</p>
-          </div>
-          <div style="background:#061b2d;border-radius:12px;padding:12px">
-            <strong style="color:#ffd24b">Host control guide</strong>
-            <div style="margin-top:7px;display:grid;gap:5px;font-size:14px">
-              <div><b>Pass Control:</b> manually moves control to the next team and clears strikes.</div>
-              <div><b>Next Team:</b> changes the highlighted team without resetting the round.</div>
-              <div><b>Cover Answers:</b> hides all revealed answers for the current card.</div>
-              <div><b>+5 / −5:</b> manually corrects a team score.</div>
-              <div><b>New Question:</b> starts a fresh round and clears strikes.</div>
-              <div><b>Reset Game:</b> clears all scores and game progress.</div>
-            </div>
-          </div>
-          <div style="background:#163a5b;border:1px solid #ffd24b55;border-radius:12px;padding:12px;font-size:13px">
-            <strong style="color:#ffd24b">Recommended 2-hour format</strong>
-            <p style="margin:6px 0 0">Play 6 Single rounds, 4 Double rounds and 2 Triple rounds, then finish with Fast Money or a tie-breaker.</p>
-          </div>
-        </div>
-      </details>`;
+      <button class="btn gold" id="openRulesBtn">📘 Open Rules & Host Walkthrough</button>
+      <div class="status">Three strikes triggers one steal attempt. Correct steal: reveal the answer and press Award. Missed steal: press Steal Missed.</div>`;
 
     const main=document.querySelector('main');
     const soundPanel=[...main.querySelectorAll('section')].find(x=>x.textContent.includes('ORIGINAL GAME-SHOW SOUNDBOARD'));
-    if(soundPanel){
-      main.insertBefore(panel,soundPanel);
-      main.insertBefore(rules,soundPanel);
-    }else{
-      main.appendChild(panel);
-      main.appendChild(rules);
+    if(soundPanel)main.insertBefore(panel,soundPanel);else main.appendChild(panel);
+
+    const modal=document.createElement('div');
+    modal.id='rulesModal';
+    modal.style.cssText='position:fixed;inset:0;z-index:20000;background:#020a12e8;display:none;align-items:center;justify-content:center;padding:14px;backdrop-filter:blur(6px)';
+    modal.innerHTML=`
+      <div style="width:min(720px,100%);max-height:92vh;overflow:auto;background:#102f4e;border:2px solid #ffd24b;border-radius:20px;box-shadow:0 30px 90px #000;padding:18px;color:#fff">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <div style="font-size:34px">🥝</div>
+          <div><div style="font-size:24px;font-weight:1000;color:#ffd24b">Kiwi Feud Host Walkthrough</div><div id="ruleProgress" style="color:#b6ccda;font-size:13px">Step 1 of 6</div></div>
+        </div>
+        <div id="ruleCard" style="background:#061b2d;border-radius:15px;padding:18px;min-height:260px"></div>
+        <div style="height:8px;background:#061b2d;border-radius:999px;margin:14px 0;overflow:hidden"><div id="ruleBar" style="height:100%;width:16.6%;background:linear-gradient(90deg,#ffd24b,#e7a51b);transition:.25s"></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+          <button class="btn ghost" id="ruleBack">← Back</button>
+          <button class="btn gold" id="ruleNext">Next →</button>
+        </div>
+        <button class="btn" id="ruleClose" style="width:100%;margin-top:9px;background:#ffffff12">Close for now</button>
+      </div>`;
+    document.body.appendChild(modal);
+
+    const steps=[
+      {title:'1. Set up your teams',icon:'👥',body:'Add or rename 2–6 teams. Tap a team’s numbered circle to make it active. Open the Audience screen before starting so everyone can see the board and scores.',tip:'The highlighted team is the team currently in control.'},
+      {title:'2. Choose the round value',icon:'✖️',body:'Select Single ×1, Double ×2 or Triple ×3 before the question begins. Every revealed answer adds to the base pot, then the multiplier is applied automatically.',tip:'A 46-point board on Double becomes a 92-point pot.'},
+      {title:'3. Start the question',icon:'🎤',body:'Press New Question. Run a face-off verbally, then tap the winning team’s circle. That team controls the board. Use Pass Control if they choose to pass or you selected the wrong team.',tip:'Do not press Award until the round is finished.'},
+      {title:'4. Reveal answers and strikes',icon:'✅',body:'Tap an answer row when a team gives a matching response. Press Add Strike for a miss. The first two strikes keep play with the same team.',tip:'Revealed answers immediately increase the round pot.'},
+      {title:'5. Steal after three strikes',icon:'⚡',body:'On the third strike, control automatically moves to the next team for one steal answer. If they are correct, reveal that answer and press Award. If they miss, press Steal Missed.',tip:'A successful steal takes the whole multiplied pot. A missed steal returns it to the original team.'},
+      {title:'6. Continue the game',icon:'🏆',body:'After the pot is awarded, choose the next multiplier and press New Question. For roughly two hours, use 6 Single rounds, 4 Double rounds and 2 Triple rounds, then finish with Fast Money or a tie-breaker.',tip:'You can reopen this walkthrough at any time from the Host Controls.'}
+    ];
+    let step=0;
+    const card=modal.querySelector('#ruleCard'),progress=modal.querySelector('#ruleProgress'),bar=modal.querySelector('#ruleBar'),back=modal.querySelector('#ruleBack'),next=modal.querySelector('#ruleNext');
+    function renderRule(){
+      const x=steps[step];
+      progress.textContent=`Step ${step+1} of ${steps.length}`;
+      bar.style.width=`${((step+1)/steps.length)*100}%`;
+      card.innerHTML=`<div style="font-size:42px;margin-bottom:8px">${x.icon}</div><h2 style="margin:0 0 10px;color:#ffd24b">${x.title}</h2><p style="font-size:17px;line-height:1.55;margin:0">${x.body}</p><div style="margin-top:16px;background:#163a5b;border-left:4px solid #ffd24b;padding:11px;border-radius:9px"><b>Host tip:</b> ${x.tip}</div>`;
+      back.disabled=step===0;
+      next.textContent=step===steps.length-1?'Start the Game →':'Next →';
     }
+    function openRulesPopup(){step=0;renderRule();modal.style.display='flex';document.body.style.overflow='hidden';}
+    function closeRules(markComplete=false){
+      if(markComplete){rulesComplete=true;sessionStorage.setItem('kiwi-feud-rules-complete','1');}
+      modal.style.display='none';document.body.style.overflow='';
+    }
+    window.openRulesPopup=openRulesPopup;
+    back.onclick=()=>{if(step>0){step--;renderRule();}};
+    next.onclick=()=>{if(step<steps.length-1){step++;renderRule();}else closeRules(true);};
+    modal.querySelector('#ruleClose').onclick=()=>closeRules(false);
+    panel.querySelector('#openRulesBtn').onclick=openRulesPopup;
 
     KiwiSync.subscribe(s=>{
       normalize(s);
@@ -188,6 +162,10 @@
       else banner.innerHTML=`IN CONTROL: <strong>${control}</strong> — ${s.strikes||0} of 3 strikes`;
       if(miss)miss.disabled=s.phase!=='steal'||s.roundAwarded;
     });
+
+    const initial=KiwiSync.get();
+    rulesComplete=sessionStorage.getItem('kiwi-feud-rules-complete')==='1';
+    if(initial.questionIndex<0&&!rulesComplete)setTimeout(openRulesPopup,250);
   }else{
     const banner=document.createElement('div');
     banner.id='audiencePhase';
