@@ -1,62 +1,42 @@
 (()=>{
-  let ctx=null, master=null, musicGain=null, musicTimer=null, enabled=false, lastState=null;
-  const overlay=document.createElement('button');
-  overlay.id='soundToggle';
-  overlay.textContent='🔊 Start Game Sound';
-  Object.assign(overlay.style,{position:'fixed',right:'14px',bottom:'14px',zIndex:'9999',border:'1px solid #ffe68a',borderRadius:'14px',padding:'12px 16px',fontWeight:'900',background:'linear-gradient(#ffe177,#e6a51f)',color:'#251700',boxShadow:'0 10px 30px #0008',cursor:'pointer'});
-  document.body.appendChild(overlay);
+  let ctx=null, master=null, musicGain=null, musicTimer=null, enabled=false;
+  const channel=('BroadcastChannel' in window)?new BroadcastChannel('kiwi-feud-sound-v1'):null;
 
   function ensure(){
-    if(ctx) return;
+    if(ctx)return;
     ctx=new (window.AudioContext||window.webkitAudioContext)();
-    master=ctx.createGain(); master.gain.value=.52; master.connect(ctx.destination);
-    musicGain=ctx.createGain(); musicGain.gain.value=.16; musicGain.connect(master);
+    master=ctx.createGain();master.gain.value=.55;master.connect(ctx.destination);
+    musicGain=ctx.createGain();musicGain.gain.value=.13;musicGain.connect(master);
   }
-  function tone(freq,dur=.12,type='sine',vol=.15,when=0,dest=master){
-    if(!enabled) return;
-    ensure();
+  async function unlock(){ensure();if(ctx.state==='suspended')await ctx.resume()}
+  function tone(freq,dur=.12,type='sine',vol=.15,when=0,dest){
+    if(!enabled)return;ensure();
     const t=ctx.currentTime+when,o=ctx.createOscillator(),g=ctx.createGain();
     o.type=type;o.frequency.setValueAtTime(freq,t);o.connect(g);g.connect(dest||master);
     g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
-    o.start(t);o.stop(t+dur+.02);
+    o.start(t);o.stop(t+dur+.03);
   }
-  function chord(notes,dur=.55,vol=.045,when=0){notes.forEach((n,i)=>tone(n,dur,i%2?'triangle':'sine',vol,when,musicGain));}
+  function chord(notes,dur=.7,vol=.025){notes.forEach((n,i)=>tone(n,dur,i%2?'triangle':'sine',vol,0,musicGain))}
   function startMusic(){
-    stopMusic();
+    stopMusic();let step=0;
     const progression=[[261.6,329.6,392],[220,277.2,329.6],[174.6,220,261.6],[196,246.9,293.7]];
-    let step=0;
-    const tick=()=>{
-      if(!enabled)return;
-      const c=progression[step%progression.length];
-      chord(c,1.7,.028,0);
-      tone(c[0]/2,.22,'sine',.038,0,musicGain);
-      tone(c[0],.09,'triangle',.025,.42,musicGain);
-      tone(c[1],.09,'triangle',.022,.84,musicGain);
-      step++;
-    };
+    const tick=()=>{if(!enabled)return;const c=progression[step++%progression.length];chord(c,1.75,.022);tone(c[0]/2,.2,'sine',.03,0,musicGain);tone(c[1],.08,'triangle',.018,.7,musicGain)};
     tick();musicTimer=setInterval(tick,1800);
   }
-  function stopMusic(){if(musicTimer){clearInterval(musicTimer);musicTimer=null;}}
-  function revealSfx(){tone(523,.09,'triangle',.18);tone(659,.12,'triangle',.16,.08);tone(784,.2,'triangle',.15,.17)}
-  function strikeSfx(){tone(120,.42,'sawtooth',.24);tone(82,.55,'square',.12,.04)}
-  function awardSfx(){[523,659,784,1047].forEach((f,i)=>tone(f,.28,'triangle',.14,i*.1))}
-  function newQuestionSfx(){tone(392,.12,'triangle',.12);tone(523,.16,'triangle',.13,.1)}
-
-  overlay.addEventListener('click',async()=>{
-    ensure();await ctx.resume();enabled=!enabled;
-    overlay.textContent=enabled?'🔇 Mute Game Sound':'🔊 Start Game Sound';
-    if(enabled){startMusic();awardSfx()}else stopMusic();
-  });
-
-  if(window.KiwiSync){
-    KiwiSync.subscribe(s=>{
-      if(lastState&&enabled){
-        if(s.questionIndex!==lastState.questionIndex)newQuestionSfx();
-        if((s.revealed?.length||0)>(lastState.revealed?.length||0))revealSfx();
-        if((s.strikes||0)>(lastState.strikes||0))strikeSfx();
-        if(s.roundAwarded&&!lastState.roundAwarded)awardSfx();
-      }
-      lastState=s;
-    });
-  }
+  function stopMusic(){if(musicTimer){clearInterval(musicTimer);musicTimer=null}}
+  function ping(){tone(659,.09,'triangle',.2);tone(880,.18,'triangle',.18,.08)}
+  function buzzer(){tone(118,.48,'sawtooth',.28);tone(78,.62,'square',.13,.03)}
+  function win(){[523,659,784,1047].forEach((f,i)=>tone(f,.3,'triangle',.14,i*.1))}
+  function question(){tone(392,.1,'triangle',.11);tone(523,.16,'triangle',.12,.09)}
+  async function setEnabled(value){await unlock();enabled=!!value;if(enabled){startMusic();ping()}else stopMusic();return enabled}
+  function handle(msg){if(!msg)return;if(msg.type==='enable')setEnabled(msg.value);if(msg.type==='ping')ping();if(msg.type==='buzzer')buzzer();if(msg.type==='win')win();if(msg.type==='question')question()}
+  if(channel)channel.onmessage=e=>handle(e.data);
+  window.KiwiAudio={
+    enable:async value=>{const on=await setEnabled(value);if(channel)channel.postMessage({type:'enable',value:on});return on},
+    ping:()=>{ping();if(channel)channel.postMessage({type:'ping'})},
+    buzzer:()=>{buzzer();if(channel)channel.postMessage({type:'buzzer'})},
+    win:()=>{win();if(channel)channel.postMessage({type:'win'})},
+    question:()=>{question();if(channel)channel.postMessage({type:'question'})},
+    isEnabled:()=>enabled
+  };
 })();
