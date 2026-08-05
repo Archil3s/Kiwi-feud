@@ -2,7 +2,7 @@
   const isHost=document.title.includes('Host');
   const channel=('BroadcastChannel' in window)?new BroadcastChannel('kiwi-feud-modes-v1'):null;
   const syntheticStart=window.KIWI_FEUD_BANK?.length||0;
-  let controller={mode:'standard',running:false,duration:20,remaining:20,endAt:0,step:0,team:0,question:0,round:0,multiplierRamp:true};
+  let controller={mode:'standard',running:false,duration:20,remaining:20,endAt:0,step:0,team:0,question:0,round:0,multiplierRamp:true,prepared:false};
   let interval=null;
 
   const fast=(window.KIWI_FEUD_FAST_MONEY||[]).map((x,i)=>({c:'Fast Money',q:x.q,a:x.a,aliases:x.aliases||{},_mode:'fast',_modeIndex:i}));
@@ -25,8 +25,17 @@
   }
   function setState(patch){controller={...controller,...patch};render();broadcast()}
   function stop(){controller.running=false;clearInterval(interval);interval=null;render();broadcast()}
-  function start(seconds=controller.duration){
-    clearInterval(interval);controller.duration=seconds;controller.remaining=seconds;controller.endAt=Date.now()+seconds*1000;controller.running=true;
+  function prepare(seconds){
+    clearInterval(interval);interval=null;
+    controller.duration=seconds;controller.remaining=seconds;controller.endAt=0;controller.running=false;controller.prepared=true;controller._lastTick=null;
+    if(isHost)KiwiSync.set({multiplier:1});
+    render();broadcast();
+  }
+  function start(seconds=null){
+    clearInterval(interval);
+    if(seconds!==null){controller.duration=seconds;controller.remaining=seconds}
+    if(controller.remaining<=0)controller.remaining=controller.duration;
+    controller.endAt=Date.now()+controller.remaining*1000;controller.running=true;controller.prepared=false;
     interval=setInterval(tick,200);tick();
   }
   function tick(){
@@ -35,22 +44,22 @@
     const nextMult=multiplierFor();
     const s=window.KiwiSync?.get?.();
     if(isHost&&s&&s.multiplier!==nextMult)window.KiwiSync.set({multiplier:nextMult});
-    if(controller.remaining<=0){stop();window.KiwiAudio?.buzzer?.();advanceMode();return}
+    if(controller.remaining<=0){stop();window.KiwiAudio?.buzzer?.();advanceMode(true);return}
     if(controller.remaining<=5&&controller.remaining>0&&controller.remaining!==controller._lastTick){controller._lastTick=controller.remaining;window.KiwiAudio?.countdown?.()}
     render();broadcast();
   }
   function loadIndex(index,team=controller.team){
-    const s=KiwiSync.get();
     KiwiSync.set({questionIndex:index,revealed:[],strikes:0,roundAwarded:false,activeTeam:team,controllingTeam:team,phase:'play',multiplier:1});
   }
   function nextTeam(){const s=KiwiSync.get();return (controller.team+1)%Math.max(2,s.teams.length)}
   function beginMode(mode){
-    const s=KiwiSync.get();controller={...controller,mode,step:0,question:0,round:controller.round+1,team:s.activeTeam||0,multiplierRamp:true};
-    if(mode==='faceoff'){loadIndex(randomMain(),controller.team);start(12)}
-    else if(mode==='tie'){loadIndex(tieStart+(controller.question%Math.max(1,ties.length)),controller.team);start(15)}
-    else if(mode==='fast'){loadIndex(fastStart,controller.team);start(20)}
-    else if(mode==='speed'){loadIndex(randomMain(),controller.team);start(15)}
-    else stop();
+    stop();
+    const s=KiwiSync.get();controller={...controller,mode,step:0,question:0,round:controller.round+1,team:s.activeTeam||0,multiplierRamp:true,prepared:true};
+    if(mode==='faceoff'){loadIndex(randomMain(),controller.team);prepare(12)}
+    else if(mode==='tie'){loadIndex(tieStart+(controller.question%Math.max(1,ties.length)),controller.team);prepare(15)}
+    else if(mode==='fast'){loadIndex(fastStart,controller.team);prepare(20)}
+    else if(mode==='speed'){loadIndex(randomMain(),controller.team);prepare(15)}
+    else{prepare(20);controller.mode='standard'}
     render();broadcast();
   }
   function randomMain(){
@@ -58,20 +67,22 @@
     while((s.usedQuestions||[]).includes(i)&&guard++<20)i=Math.floor(Math.random()*Math.max(1,max));
     return i;
   }
-  function advanceMode(){
+  function advanceMode(autoContinue=false){
     if(!isHost)return;
+    let nextDuration=controller.duration;
     if(controller.mode==='faceoff'){
-      if(controller.step===0){controller.step=1;controller.team=nextTeam();loadIndex(KiwiSync.get().questionIndex,controller.team);start(12)}
-      else{controller.step=2;render();broadcast()}
+      if(controller.step===0){controller.step=1;controller.team=nextTeam();loadIndex(KiwiSync.get().questionIndex,controller.team);nextDuration=12}
+      else{controller.step=2;prepare(12);render();broadcast();return}
     }else if(controller.mode==='tie'){
-      controller.question=(controller.question+1)%Math.max(1,ties.length);controller.team=nextTeam();loadIndex(tieStart+controller.question,controller.team);start(15)
+      controller.question=(controller.question+1)%Math.max(1,ties.length);controller.team=nextTeam();loadIndex(tieStart+controller.question,controller.team);nextDuration=15
     }else if(controller.mode==='fast'){
       controller.question++;
-      if(controller.question<Math.min(5,fast.length)){loadIndex(fastStart+controller.question,controller.team);start(20)}
-      else{controller.question=0;controller.team=nextTeam();controller.step++;loadIndex(fastStart,controller.team);start(20)}
+      if(controller.question<Math.min(5,fast.length)){loadIndex(fastStart+controller.question,controller.team);nextDuration=20}
+      else{controller.question=0;controller.team=nextTeam();controller.step++;loadIndex(fastStart,controller.team);nextDuration=20}
     }else if(controller.mode==='speed'){
-      controller.question++;controller.team=nextTeam();loadIndex(randomMain(),controller.team);start(controller.duration)
-    }
+      controller.question++;controller.team=nextTeam();loadIndex(randomMain(),controller.team);nextDuration=controller.duration
+    }else return;
+    if(autoContinue)start(nextDuration);else prepare(nextDuration);
   }
 
   let panel,stage;
@@ -82,15 +93,16 @@
       panel.querySelector('[data-mode-fill]').style.width=pct+'%';
       panel.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===controller.mode));
       const s=KiwiSync.get(),name=s.teams?.[controller.team]?.name||'Team';
-      panel.querySelector('[data-mode-status]').innerHTML=`<strong>${controller.mode==='standard'?'Standard game':controller.mode.replace(/^./,x=>x.toUpperCase())}</strong> · ${name} · Question ${controller.question+1} · Multiplier ×${multiplierFor()}`;
-      panel.querySelector('#modeStart').textContent=controller.running?'⏸ Pause Mode':'▶ Start / Resume';
+      const stateLabel=controller.running?'Running':controller.prepared?'Ready — press Start':'Paused';
+      panel.querySelector('[data-mode-status]').innerHTML=`<strong>${controller.mode==='standard'?'Standard game':controller.mode.replace(/^./,x=>x.toUpperCase())}</strong> · ${name} · Question ${controller.question+1} · ${stateLabel} · Multiplier ×${multiplierFor()}`;
+      panel.querySelector('#modeStart').textContent=controller.running?'⏸ Pause Mode':controller.prepared?'▶ Start Countdown':'▶ Continue Countdown';
     }
     if(stage){
       const s=KiwiSync.get(),name=s.teams?.[controller.team]?.name||'Team';
       stage.classList.toggle('show',controller.mode!=='standard');
       stage.querySelector('strong').textContent=controller.mode==='faceoff'?'Face-off':controller.mode==='tie'?'Tie-breaker':controller.mode==='fast'?'Fast Money':'Speed Round';
       stage.querySelector('b').textContent=fmt(controller.remaining);
-      stage.querySelector('small').textContent=`${name} · Question ${controller.question+1} · ×${multiplierFor()} points`;
+      stage.querySelector('small').textContent=`${name} · Question ${controller.question+1} · ${controller.running?'Counting down':'Waiting for host'} · ×${multiplierFor()} points`;
     }
   }
 
@@ -100,18 +112,18 @@
     panel=document.createElement('section');panel.className='panel mode-panel';
     panel.innerHTML=`<strong style="color:#ffd24b">🎮 Automatic Game Modes</strong>
       <div class="mode-grid"><button class="btn" data-mode="standard">Standard</button><button class="btn" data-mode="faceoff">Face-off</button><button class="btn" data-mode="tie">Tie-breaker</button><button class="btn" data-mode="fast">Fast Money</button><button class="btn" data-mode="speed">Speed Round</button></div>
-      <div class="mode-clock"><div class="mode-time" data-mode-time>0:20</div><div><div class="mode-progress"><i data-mode-fill></i></div><div class="mode-status" data-mode-status>Choose a mode.</div></div><button class="btn green" id="modeStart">▶ Start / Resume</button></div>
+      <div class="mode-clock"><div class="mode-time" data-mode-time>0:20</div><div><div class="mode-progress"><i data-mode-fill></i></div><div class="mode-status" data-mode-status>Choose a mode.</div></div><button class="btn green" id="modeStart">▶ Start Countdown</button></div>
       <div class="grid"><button class="btn" id="modeNext">Next Now</button><button class="btn red" id="modeStop">Stop Mode</button></div>
       <label class="field"><span>Timed multiplier</span><select id="modeRamp"><option value="on">Automatic ×1 → ×2 → ×3</option><option value="off">Keep ×1</option></select></label>
-      <details><summary style="cursor:pointer;font-weight:900;color:#ffd24b">Game rules and mode flow</summary><div class="mode-rules"><article><strong>Face-off:</strong> each team gets a 12-second chance. The game swaps teams automatically after time expires.</article><article><strong>Tie-breaker:</strong> one top-answer board, 15 seconds per team, then automatic team rotation and a new tie-breaker.</article><article><strong>Fast Money:</strong> five 20-second questions for one team, then the game swaps to the next team and restarts the set.</article><article><strong>Speed Round:</strong> new question and team every timer cycle.</article><article><strong>Timed multiplier:</strong> ×1 in the first third, ×2 in the middle third and ×3 in the final third.</article></div></details>`;
+      <details><summary style="cursor:pointer;font-weight:900;color:#ffd24b">Game rules and mode flow</summary><div class="mode-rules"><article><strong>Mode selection:</strong> choosing a mode prepares the question and timer but does not start the countdown. The host presses Start when everyone is ready.</article><article><strong>Face-off:</strong> each team gets a 12-second chance. After the first timer expires, the next team's countdown continues automatically.</article><article><strong>Tie-breaker:</strong> one top-answer board, 15 seconds per team, then automatic team rotation and a new tie-breaker.</article><article><strong>Fast Money:</strong> five 20-second questions for one team, then the game swaps to the next team and restarts the set.</article><article><strong>Speed Round:</strong> new question and team every timer cycle.</article><article><strong>Timed multiplier:</strong> ×1 in the first third, ×2 in the middle third and ×3 in the final third.</article></div></details>`;
     const left=document.querySelector('.host-left-column')||document.querySelector('main');left.prepend(panel);
-    panel.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{if(b.dataset.mode==='standard'){stop();setState({mode:'standard',remaining:20,duration:20});KiwiSync.set({multiplier:1})}else beginMode(b.dataset.mode)});
-    panel.querySelector('#modeStart').onclick=()=>controller.running?stop():start(controller.remaining||controller.duration);
-    panel.querySelector('#modeNext').onclick=advanceMode;
-    panel.querySelector('#modeStop').onclick=()=>{stop();setState({mode:'standard',remaining:20,duration:20});KiwiSync.set({multiplier:1})};
+    panel.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{if(b.dataset.mode==='standard'){stop();setState({mode:'standard',remaining:20,duration:20,prepared:false});KiwiSync.set({multiplier:1})}else beginMode(b.dataset.mode)});
+    panel.querySelector('#modeStart').onclick=()=>controller.running?stop():start();
+    panel.querySelector('#modeNext').onclick=()=>advanceMode(controller.running);
+    panel.querySelector('#modeStop').onclick=()=>{stop();setState({mode:'standard',remaining:20,duration:20,prepared:false});KiwiSync.set({multiplier:1})};
     panel.querySelector('#modeRamp').onchange=e=>{controller.multiplierRamp=e.target.value==='on';if(!controller.multiplierRamp)KiwiSync.set({multiplier:1});render();broadcast()};
   }else{
-    const board=document.querySelector('.board')||document.querySelector('.shell')||document.body;board.style.position='relative';stage=document.createElement('div');stage.className='mode-stage';stage.innerHTML='<div class="mode-banner"><strong>Mode</strong><b>0:20</b><small>Waiting</small></div>';board.appendChild(stage);
+    const board=document.querySelector('.board')||document.querySelector('.shell')||document.body;board.style.position='relative';stage=document.createElement('div');stage.className='mode-stage';stage.innerHTML='<div class="mode-banner"><strong>Mode</strong><b>0:20</b><small>Waiting for host</small></div>';board.appendChild(stage);
   }
   render();
 })();
