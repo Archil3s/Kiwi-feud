@@ -2,7 +2,7 @@
   const isHost=document.title.includes('Host');
   const channel=('BroadcastChannel' in window)?new BroadcastChannel('kiwi-feud-modes-v1'):null;
   const syntheticStart=window.KIWI_FEUD_BANK?.length||0;
-  let controller={mode:'standard',running:false,duration:20,remaining:20,endAt:0,step:0,team:0,question:0,round:0,multiplierRamp:true,prepared:false};
+  let controller={mode:'standard',running:false,duration:20,remaining:20,endAt:0,step:0,team:0,question:0,round:0,multiplierRamp:true,prepared:false,lastAward:0};
   let interval=null;
 
   const fast=(window.KIWI_FEUD_FAST_MONEY||[]).map((x,i)=>({c:'Fast Money',q:x.q,a:x.a,aliases:x.aliases||{},_mode:'fast',_modeIndex:i}));
@@ -38,6 +38,26 @@
     controller.endAt=Date.now()+controller.remaining*1000;controller.running=true;controller.prepared=false;
     interval=setInterval(tick,200);tick();
   }
+  function currentRoundPoints(){
+    const s=KiwiSync.get();
+    const q=window.KIWI_FEUD_BANK?.[s.questionIndex];
+    if(!q)return 0;
+    const base=(s.revealed||[]).reduce((sum,i)=>sum+(q.a?.[i]?.[1]||0),0);
+    return base*(Number(s.multiplier)||1);
+  }
+  function awardCurrentQuestion(){
+    if(!isHost||controller.mode==='faceoff'||controller.mode==='standard')return 0;
+    const s=KiwiSync.get();
+    if(s.roundAwarded)return 0;
+    const points=currentRoundPoints();
+    if(points<=0)return 0;
+    const teamIndex=Math.max(0,Math.min(controller.team,s.teams.length-1));
+    const teams=s.teams.map((team,i)=>i===teamIndex?{...team,score:(Number(team.score)||0)+points}:team);
+    KiwiSync.set({teams,roundAwarded:true});
+    controller.lastAward=points;
+    window.KiwiAudio?.win?.();
+    return points;
+  }
   function tick(){
     if(!controller.running)return;
     controller.remaining=Math.max(0,Math.ceil((controller.endAt-Date.now())/1000));
@@ -54,7 +74,7 @@
   function nextTeam(){const s=KiwiSync.get();return (controller.team+1)%Math.max(2,s.teams.length)}
   function beginMode(mode){
     stop();
-    const s=KiwiSync.get();controller={...controller,mode,step:0,question:0,round:controller.round+1,team:s.activeTeam||0,multiplierRamp:true,prepared:true};
+    const s=KiwiSync.get();controller={...controller,mode,step:0,question:0,round:controller.round+1,team:s.activeTeam||0,multiplierRamp:true,prepared:true,lastAward:0};
     if(mode==='faceoff'){loadIndex(randomMain(),controller.team);prepare(12)}
     else if(mode==='tie'){loadIndex(tieStart+(controller.question%Math.max(1,ties.length)),controller.team);prepare(15)}
     else if(mode==='fast'){loadIndex(fastStart,controller.team);prepare(20)}
@@ -69,6 +89,7 @@
   }
   function advanceMode(autoContinue=false){
     if(!isHost)return;
+    awardCurrentQuestion();
     let nextDuration=controller.duration;
     if(controller.mode==='faceoff'){
       if(controller.step===0){controller.step=1;controller.team=nextTeam();loadIndex(KiwiSync.get().questionIndex,controller.team);nextDuration=12}
@@ -94,7 +115,8 @@
       panel.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===controller.mode));
       const s=KiwiSync.get(),name=s.teams?.[controller.team]?.name||'Team';
       const stateLabel=controller.running?'Running':controller.prepared?'Ready — press Start':'Paused';
-      panel.querySelector('[data-mode-status]').innerHTML=`<strong>${controller.mode==='standard'?'Standard game':controller.mode.replace(/^./,x=>x.toUpperCase())}</strong> · ${name} · Question ${controller.question+1} · ${stateLabel} · Multiplier ×${multiplierFor()}`;
+      const awarded=controller.lastAward?` · Last award +${controller.lastAward}`:'';
+      panel.querySelector('[data-mode-status]').innerHTML=`<strong>${controller.mode==='standard'?'Standard game':controller.mode.replace(/^./,x=>x.toUpperCase())}</strong> · ${name} · Question ${controller.question+1} · ${stateLabel} · Multiplier ×${multiplierFor()}${awarded}`;
       panel.querySelector('#modeStart').textContent=controller.running?'⏸ Pause Mode':controller.prepared?'▶ Start Countdown':'▶ Continue Countdown';
     }
     if(stage){
@@ -115,12 +137,12 @@
       <div class="mode-clock"><div class="mode-time" data-mode-time>0:20</div><div><div class="mode-progress"><i data-mode-fill></i></div><div class="mode-status" data-mode-status>Choose a mode.</div></div><button class="btn green" id="modeStart">▶ Start Countdown</button></div>
       <div class="grid"><button class="btn" id="modeNext">Next Now</button><button class="btn red" id="modeStop">Stop Mode</button></div>
       <label class="field"><span>Timed multiplier</span><select id="modeRamp"><option value="on">Automatic ×1 → ×2 → ×3</option><option value="off">Keep ×1</option></select></label>
-      <details><summary style="cursor:pointer;font-weight:900;color:#ffd24b">Game rules and mode flow</summary><div class="mode-rules"><article><strong>Mode selection:</strong> choosing a mode prepares the question and timer but does not start the countdown. The host presses Start when everyone is ready.</article><article><strong>Face-off:</strong> each team gets a 12-second chance. After the first timer expires, the next team's countdown continues automatically.</article><article><strong>Tie-breaker:</strong> one top-answer board, 15 seconds per team, then automatic team rotation and a new tie-breaker.</article><article><strong>Fast Money:</strong> five 20-second questions for one team, then the game swaps to the next team and restarts the set.</article><article><strong>Speed Round:</strong> new question and team every timer cycle.</article><article><strong>Timed multiplier:</strong> ×1 in the first third, ×2 in the middle third and ×3 in the final third.</article></div></details>`;
+      <details><summary style="cursor:pointer;font-weight:900;color:#ffd24b">Game rules and mode flow</summary><div class="mode-rules"><article><strong>Automatic scoring:</strong> when a timed Tie-breaker, Fast Money or Speed Round question ends, all revealed-answer points are multiplied and added to the active team's score before the next question loads.</article><article><strong>Mode selection:</strong> choosing a mode prepares the question and timer but does not start the countdown. The host presses Start when everyone is ready.</article><article><strong>Face-off:</strong> each team gets a 12-second chance. Face-off answers choose control and are not automatically added as round points.</article><article><strong>Tie-breaker:</strong> one top-answer board, 15 seconds per team, then automatic scoring, team rotation and a new tie-breaker.</article><article><strong>Fast Money:</strong> five 20-second questions for one team, with each question scored automatically, then the game swaps to the next team.</article><article><strong>Speed Round:</strong> each timer cycle scores the revealed answers, then loads a new question and team.</article><article><strong>Timed multiplier:</strong> ×1 in the first third, ×2 in the middle third and ×3 in the final third.</article></div></details>`;
     const left=document.querySelector('.host-left-column')||document.querySelector('main');left.prepend(panel);
-    panel.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{if(b.dataset.mode==='standard'){stop();setState({mode:'standard',remaining:20,duration:20,prepared:false});KiwiSync.set({multiplier:1})}else beginMode(b.dataset.mode)});
+    panel.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{if(b.dataset.mode==='standard'){stop();setState({mode:'standard',remaining:20,duration:20,prepared:false,lastAward:0});KiwiSync.set({multiplier:1})}else beginMode(b.dataset.mode)});
     panel.querySelector('#modeStart').onclick=()=>controller.running?stop():start();
     panel.querySelector('#modeNext').onclick=()=>advanceMode(controller.running);
-    panel.querySelector('#modeStop').onclick=()=>{stop();setState({mode:'standard',remaining:20,duration:20,prepared:false});KiwiSync.set({multiplier:1})};
+    panel.querySelector('#modeStop').onclick=()=>{stop();setState({mode:'standard',remaining:20,duration:20,prepared:false,lastAward:0});KiwiSync.set({multiplier:1})};
     panel.querySelector('#modeRamp').onchange=e=>{controller.multiplierRamp=e.target.value==='on';if(!controller.multiplierRamp)KiwiSync.set({multiplier:1});render();broadcast()};
   }else{
     const board=document.querySelector('.board')||document.querySelector('.shell')||document.body;board.style.position='relative';stage=document.createElement('div');stage.className='mode-stage';stage.innerHTML='<div class="mode-banner"><strong>Mode</strong><b>0:20</b><small>Waiting for host</small></div>';board.appendChild(stage);
